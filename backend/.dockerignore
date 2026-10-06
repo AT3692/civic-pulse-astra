@@ -1,0 +1,36 @@
+# Virtual environments and bytecode
+.venv
+venv
+env
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+
+# Version control
+.git
+.gitignore
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Tests and tool caches (CI runs these outside the image)
+tests
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Editor / OS noise
+.vscode
+.idea
+*.log
+.DS_Store
+
+# Not needed in the context
+Dockerfile
+.dockerignore
