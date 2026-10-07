@@ -2,6 +2,7 @@
 
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,6 +10,15 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 errors = []
+tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT, text=True).split(
+    "\0"
+)
+for name in tracked:
+    filename = Path(name).name
+    if (
+        filename == ".env" or filename.startswith(".env.")
+    ) and filename != ".env.example":
+        errors.append(f"Tracked environment file: {name}; remove it from the index")
 required = [
     "backend/alembic/versions/0001_complaints.py",
     "backend/openapi.json",
