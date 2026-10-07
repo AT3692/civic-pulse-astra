@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: civicpulse-config
+data:
+  APP_ENV: production
+  LOG_LEVEL: INFO
+  POSTGRES_USER: civicpulse
+  POSTGRES_DB: civicpulse
+  TRIAGE_PROVIDER: rules
+  LLM_MODEL: llama-3.1-8b-instant
+  RATE_LIMIT_PER_MINUTE: '10'
+  TRUSTED_PROXY_CIDRS: 10.0.0.0/8,172.16.0.0/12
