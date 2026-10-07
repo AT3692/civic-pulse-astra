@@ -111,9 +111,64 @@ jobs:
       - name: Always clean up test volumes
         if: always()
         run: docker compose down -v
+  kubernetes-smoke:
+    needs: [build-and-scan, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BACKEND_IMAGE: civicpulse-backend:${{ github.sha }}
+      FRONTEND_IMAGE: civicpulse-frontend:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install PyYAML==6.0.3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          load: true
+          push: false
+          tags: ${{ env.BACKEND_IMAGE }}
+          cache-from: type=gha,scope=backend
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          load: true
+          push: false
+          tags: ${{ env.FRONTEND_IMAGE }}
+          cache-from: type=gha,scope=frontend
+      - run: bash scripts/install-kube-tools.sh
+      - name: Create disposable cluster and import local images
+        run: |
+          k3d cluster create civicpulse --image rancher/k3s:v1.33.3-k3s1 --agents 1 --port '8080:80@loadbalancer' --wait
+          k3d image import "$BACKEND_IMAGE" "$FRONTEND_IMAGE" --cluster civicpulse
+      - name: Apply production overlay with migrations
+        env: {DEPLOY_TRIAGE_PROVIDER: simulated, SEED_DEMO: '1'}
+        run: |
+          export POSTGRES_PASSWORD=$(openssl rand -hex 24)
+          export REDIS_PASSWORD=$(openssl rand -hex 24)
+          export OPERATOR_API_KEY=$(openssl rand -hex 24)
+          bash scripts/deploy-k8s.sh
+      - name: Ingress smoke and Postgres pod persistence
+        env: {BASE_URL: 'http://localhost:8080', SMOKE_HOST: civicpulse.local}
+        run: bash scripts/cluster-smoke.sh
+      - name: Capture cluster diagnostics
+        if: always()
+        run: |
+          mkdir -p evidence
+          kubectl get all -n civicpulse -o wide > evidence/resources.txt || true
+          kubectl get events -n civicpulse --sort-by=.lastTimestamp > evidence/events.txt || true
+          kubectl logs -n civicpulse deployment/backend --all-containers > evidence/backend.log || true
+          kubectl logs -n civicpulse job/civicpulse-migrate > evidence/migration.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: pr-cluster-evidence, path: evidence/}
+      - if: always()
+        run: k3d cluster delete civicpulse
   required:
     if: always()
-    needs: [lint-and-type, test-backend, test-frontend, build-and-scan, manifests, integration]
+    needs: [lint-and-type, test-backend, test-frontend, build-and-scan, manifests, integration, kubernetes-smoke]
     runs-on: ubuntu-24.04
     steps:
       - env:
