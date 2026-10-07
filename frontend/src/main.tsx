@@ -1,11 +1,12 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { App } from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import "./styles.css";
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <div style={{ fontFamily: 'sans-serif', textAlign: 'center', marginTop: '50px' }}>
-      <h1>CivicPulse Platform</h1>
-      <p>Frontend container is running successfully via Nginx!</p>
-    </div>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
-)
+);
