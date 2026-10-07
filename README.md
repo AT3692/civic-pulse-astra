@@ -10,12 +10,14 @@ A municipal complaint intake, AI triage, and operations dashboard for FAST-NUCES
 Install Docker Engine with Compose v2, Python 3, and Git. From a clean clone:
 
 ```bash
-git clone https://github.com/AT3692/civic-pulse-astra.git
+git clone --branch feat/civicpulse-milestones-2-4 https://github.com/AT3692/civic-pulse-astra.git
 cd civic-pulse-astra
 bash scripts/quickstart.sh
 ```
 
 Open **http://localhost:8080**. The command creates local random secrets if `.env` is absent, builds and starts five containers, runs Alembic, and loads **36 idempotent demo reports**. The default `simulated` provider needs no account, model download, or external AI request. API docs: http://localhost:8000/docs (development only). Set `FRONTEND_PORT` in `.env` if 8080 is occupied. First builds and the Ollama image download may take several minutes.
+
+The clone command selects the implementation branch while the changes await review; `main` still contains Milestone 1. To update statuses, copy the locally generated `OPERATOR_API_KEY` value from your `.env` into the dashboard's operator-key field. Keep that value private. The previously tracked `.env` is removed in this branch; see [the history remediation note](docs/ENV-HISTORY.md).
 
 Select a provider in `.env` and recreate the backend:
 
@@ -91,7 +93,7 @@ When changing API schemas: `python scripts/export_openapi.py && npm --prefix fro
 
 ## CI/CD and Kubernetes
 
-- `ci.yml`: Ruff, mypy, ESLint, tsc, ≥65% Python coverage, component tests, image builds without publishing, Trivy HIGH/CRITICAL fixable vulnerabilities, strict kubeconform, and Compose smoke tests. Require the **CI / required** aggregate check in branch protection.
+- `ci.yml`: Ruff, mypy, ESLint, tsc, ≥65% Python coverage, component tests, image builds without registry publishing, Trivy HIGH/CRITICAL fixable vulnerabilities, strict kubeconform, Compose smoke tests, and a disposable Kubernetes deployment/Ingress/persistence test. Require the **CI / required** aggregate check in branch protection.
 - `cd.yml`: runs the whole suite on merged `main`, builds/pushes SHA and latest tags to GHCR, scans resulting digests, emits Syft SBOMs, signs/verifies with Cosign, creates an ephemeral k3d cluster, deploys by **digest**, and smoke-tests Ingress.
 - `release.yml`: tests tagged code, builds semver images, and generates release notes.
 

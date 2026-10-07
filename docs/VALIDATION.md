@@ -5,8 +5,8 @@ These results were obtained in the implementation workspace, not inferred from w
 | Check | Result |
 |---|---|
 | Python unit/API/provider tests | 50 passed |
-| Real PostgreSQL/Redis integration tests | 2 skipped locally; CI supplies their required isolated services |
-| Coverage of app/ | 85.09%, above the 65% gate; seed CLI excluded, schema-wait CLI included |
+| Real PostgreSQL/Redis integration tests | Both passed in GitHub Actions; 52 total backend tests passed |
+| Coverage of app/ | 85.09% locally; 88.85% with real-service CI tests, above the 65% gate |
 | mypy | Success, 26 application modules |
 | Ruff lint and format | Passed across backend and Python scripts |
 | Frontend component tests | 7 passed |
@@ -14,22 +14,35 @@ These results were obtained in the implementation workspace, not inferred from w
 | ESLint, TypeScript and Prettier | Passed |
 | Vite production build | Passed; JS about 162.5 kB / 52.5 kB gzip, CSS about 5.3 kB / 1.8 kB gzip |
 | OpenAPI generation | Passed; generated schema and client included |
-| Alembic PostgreSQL offline DDL generation | Passed; live migration upgrade/downgrade awaits integration services |
+| Alembic migrations | Offline generation passed locally; live upgrade/downgrade passed in CI |
 | Kustomize dev + prod rendering | Passed |
 | Strict kubeconform | 36 resources validated across both overlays; 0 invalid, 0 errors, 0 skipped |
 | GitHub Actions actionlint 1.7.7 | Passed for all three workflows |
 | Shell syntax + submission checker | Passed |
 | Container base image references | Official registry manifest digests resolved and pinned for Python, Node, Nginx, Postgres and Redis |
+| Both Docker image builds | Passed in GitHub Actions |
+| Five-container Compose startup | Passed; all services healthy, 36 seeded reports |
+| HTTP smoke through Nginx | Passed: create, retrieve, stats MISS then HIT |
+| Network isolation and seed idempotence | Passed: frontend cannot reach Postgres; repeated seed inserts zero rows |
+| Trivy image scan | Both passed after correcting the frontend's two fixable HIGH package findings |
+| Production Kubernetes overlay on k3d | Passed: migration Job, backend/frontend rollouts and Ingress smoke |
+| Kubernetes volume persistence | Passed: the same report was retrieved after deleting and replacing `postgres-0` |
+
+The first remote run is [37650717631](https://github.com/AT3692/civic-pulse-astra/actions/runs/37650717631), at `1c3ed2f52d6fdee99a4e80206fb6454eea2872f1`. It failed correctly at the frontend security gate: libexpat 2.8.4-r0 and pcre2 10.48-r0 had fixed HIGH findings. The Dockerfile now explicitly installs Alpine's fixed 2.8.5-r0 and 10.49-r0 packages while keeping the base digest and failing scan gate. This is real security-gate evidence, not the rubric's separately requested deliberately failing-test PR.
+
+CI now also creates a disposable k3d cluster before merge, imports locally built SHA-tagged images without registry publishing, applies the production overlay, tests the Ingress and checks persistence after replacing the Postgres pod. This exercises the deployment script without requiring a merge to `main`.
+
+All CI jobs, including the corrected runtime-package scans and disposable Kubernetes deployment/persistence checks, passed in [run 37651497142](https://github.com/AT3692/civic-pulse-astra/actions/runs/37651497142), at `7c701dac8abd41abac24d95e6bd29469621058a6`. This documentation-only follow-up records those results; it does not claim a separate completed run for a later commit. Cluster resource/event/migration/backend logs are attached to that run as `pr-cluster-evidence`.
 
 ## Checks not yet demonstrated
 
-The workspace has no Docker daemon or running Kubernetes cluster. System PostgreSQL/Redis installation was unavailable, so the two real-service tests were explicitly skipped. Consequently Docker builds, Compose smoke/persistence/isolation, Trivy image scanning, GHCR publishing/signing, the ephemeral k3d deployment, actual ingress traffic, load/rollout behavior, HPA scale-out and VPA recommendations have **not** been claimed as passing. They are wired into CI or the runbook for an environment that can execute them.
+The local workspace has no Docker daemon or running Kubernetes cluster. The real-service and Compose results above came from GitHub Actions. GHCR publishing/signing, the CD workflow on merged `main`, Compose down/up volume persistence, live-load rollout behavior, HPA scale-out and VPA recommendations remain separate checks. Their success is not inferred from manifests or unit tests.
 
 The installed Playwright package had no browser executable; browser download did not complete. No rendered UI screenshot or browser-level end-to-end result is claimed. Component and HTTP-adapter tests plus the static production build passed.
 
 Local tools were Python 3.12.14 and Node 24.19.0. Containers/CI specify Python 3.12 and Node 22. Tests emit an upstream Starlette warning about eventual migration from httpx TestClient to httpx2; it is not a test failure. Installed package versions are recorded exactly in the lock/manifests.
 
-GitHub installation was confirmed during the task, but its authenticated tools were not yet exposed to this running session. A pre-connection Git push dry-run lacked authentication. No remote branch, PR, or successful Actions run is asserted by this record; publish the prepared branch after tool access refreshes.
+The implementation is published on `feat/civicpulse-milestones-2-4`, with [draft PR #1](https://github.com/AT3692/civic-pulse-astra/pull/1) targeting `dev`. Git transport lacked write credentials, so the connected GitHub API published logical commits; each resulting file tree was verified against its local counterpart. Commit IDs changed because the API supplied commit metadata. Original local commits were preserved on backup branches. No commit was pushed to `main`. After review, merge the feature into `dev`, then promote `dev` to `main` through a reviewed PR to run CD.
 
 ## Remaining submission evidence
 

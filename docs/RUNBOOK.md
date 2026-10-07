@@ -12,6 +12,8 @@ Production Compose is standalone, not an override: set `GITHUB_OWNER` lowercase,
 
 Requirements: Docker, Python 3 + PyYAML, kubectl, k3d; Linux amd64 tool setup is available in `scripts/install-kube-tools.sh` (checksums verified). Add `$HOME/.local/bin` to PATH afterward. The cluster uses k3s's bundled Traefik, metrics-server, local-path provisioner and NetworkPolicy controller.
 
+CI's `kubernetes-smoke` job runs this deployment path before merge using locally imported commit-tagged images; it does not publish to GHCR. Its `scripts/cluster-smoke.sh` check deliberately replaces the Postgres pod to verify PVC persistence. Run that script only against a disposable demonstration cluster. CI uploads cluster diagnostics even if deployment fails.
+
 ```bash
 k3d cluster create civicpulse --image rancher/k3s:v1.33.3-k3s1   --agents 1 --port '8080:80@loadbalancer' --wait
 # Use image digests from a successful CD run. No latest, no example digest.
