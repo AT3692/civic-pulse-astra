@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copy manifests first so `npm ci` stays cached until dependencies change
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 COPY . .
 RUN npm run build        # emits static files to /app/dist
