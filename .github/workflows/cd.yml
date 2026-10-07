@@ -1,0 +1,129 @@
+name: CD
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+  build-push:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      backend: ${{ steps.refs.outputs.backend }}
+      frontend: ${{ steps.refs.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - id: names
+        env: {OWNER: '${{ github.repository_owner }}'}
+        run: echo "owner=${OWNER,,}" >> "$GITHUB_OUTPUT"
+      - id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.names.outputs.owner }}/civicpulse-backend:${{ github.sha }}
+            ghcr.io/${{ steps.names.outputs.owner }}/civicpulse-backend:latest
+          sbom: true
+          provenance: mode=max
+      - id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.names.outputs.owner }}/civicpulse-frontend:${{ github.sha }}
+            ghcr.io/${{ steps.names.outputs.owner }}/civicpulse-frontend:latest
+          sbom: true
+          provenance: mode=max
+      - id: refs
+        env:
+          OWNER: ${{ steps.names.outputs.owner }}
+          BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
+        run: |
+          echo "backend=ghcr.io/$OWNER/civicpulse-backend@$BACKEND_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "frontend=ghcr.io/$OWNER/civicpulse-frontend@$FRONTEND_DIGEST" >> "$GITHUB_OUTPUT"
+      - uses: aquasecurity/trivy-action@0.35.0
+        with: {image-ref: '${{ steps.refs.outputs.backend }}', severity: 'HIGH,CRITICAL', ignore-unfixed: true, exit-code: '1'}
+      - uses: aquasecurity/trivy-action@0.35.0
+        with: {image-ref: '${{ steps.refs.outputs.frontend }}', severity: 'HIGH,CRITICAL', ignore-unfixed: true, exit-code: '1'}
+      - uses: anchore/sbom-action@v0
+        with: {image: '${{ steps.refs.outputs.backend }}', artifact-name: backend-sbom.spdx.json}
+      - uses: anchore/sbom-action@v0
+        with: {image: '${{ steps.refs.outputs.frontend }}', artifact-name: frontend-sbom.spdx.json}
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign and verify immutable references
+        env:
+          BACKEND_IMAGE: ${{ steps.refs.outputs.backend }}
+          FRONTEND_IMAGE: ${{ steps.refs.outputs.frontend }}
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/cd.yml@refs/heads/main
+        run: |
+          for image in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+            cosign sign --yes "$image"
+            cosign verify --certificate-identity "$IDENTITY" --certificate-oidc-issuer https://token.actions.githubusercontent.com "$image"
+          done
+  deploy-k8s:
+    needs: build-push
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    env:
+      BACKEND_IMAGE: ${{ needs.build-push.outputs.backend }}
+      FRONTEND_IMAGE: ${{ needs.build-push.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: '${{ github.actor }}', password: '${{ secrets.GITHUB_TOKEN }}'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install PyYAML==6.0.3
+      - run: bash scripts/install-kube-tools.sh
+      - name: Create ephemeral k3d cluster with Traefik and metrics-server
+        run: |
+          k3d cluster create civicpulse --image rancher/k3s:v1.33.3-k3s1 --agents 1 --port '8080:80@loadbalancer' --wait
+          kubectl create namespace civicpulse
+          kubectl create secret generic ghcr-pull -n civicpulse --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson="$HOME/.docker/config.json"
+          kubectl patch serviceaccount default -n civicpulse -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+      - name: Migrate and deploy tested digests
+        env: {DEPLOY_TRIAGE_PROVIDER: simulated, SEED_DEMO: '1'}
+        run: |
+          export POSTGRES_PASSWORD=$(openssl rand -hex 24)
+          export REDIS_PASSWORD=$(openssl rand -hex 24)
+          export OPERATOR_API_KEY=$(openssl rand -hex 24)
+          bash scripts/deploy-k8s.sh
+      - name: Smoke test through Ingress
+        env: {BASE_URL: 'http://localhost:8080', SMOKE_HOST: civicpulse.local}
+        run: |
+          kubectl rollout status deployment/traefik -n kube-system --timeout=180s
+          for attempt in $(seq 1 30); do
+            if curl -fsS -H 'Host: civicpulse.local' http://localhost:8080/api/complaints > /dev/null; then break; fi
+            sleep 2
+          done
+          python scripts/smoke.py
+          kubectl get hpa -n civicpulse
+      - name: Capture deployment evidence
+        if: always()
+        run: |
+          mkdir -p evidence
+          kubectl get all -n civicpulse -o wide > evidence/resources.txt
+          kubectl get events -n civicpulse --sort-by=.lastTimestamp > evidence/events.txt
+          kubectl logs -n civicpulse deployment/backend --all-containers > evidence/backend.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: cluster-evidence, path: evidence/}
+      - if: always()
+        run: k3d cluster delete civicpulse

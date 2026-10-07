@@ -1,18 +1,22 @@
 # syntax=docker/dockerfile:1
 
 # ---------- Stage 1: build ----------
-FROM node:22-alpine AS build
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS build
 WORKDIR /app
 
 # Copy manifests first so `npm ci` stays cached until dependencies change
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 RUN npm run build        # emits static files to /app/dist
 
 # ---------- Stage 2: runtime ----------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94 AS runtime
+
+# The pinned base predates these Alpine security fixes; keep the Trivy gate strict.
+# CVE-2026-93990 (libexpat) and CVE-2026-103111 (pcre2).
+RUN apk add --no-cache --upgrade libexpat=2.8.5-r0 pcre2=10.49-r0
 
 # Drop the stock server block and use our own full config
 RUN rm -f /etc/nginx/conf.d/default.conf
