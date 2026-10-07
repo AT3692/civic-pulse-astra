@@ -14,6 +14,10 @@ RUN npm run build        # emits static files to /app/dist
 # ---------- Stage 2: runtime ----------
 FROM nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94 AS runtime
 
+# The pinned base predates these Alpine security fixes; keep the Trivy gate strict.
+# CVE-2026-93990 (libexpat) and CVE-2026-103111 (pcre2).
+RUN apk add --no-cache --upgrade libexpat=2.8.5-r0 pcre2=10.49-r0
+
 # Drop the stock server block and use our own full config
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/nginx.conf
